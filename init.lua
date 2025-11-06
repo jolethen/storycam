@@ -1,16 +1,13 @@
--- StoryCam Mod (init.lua)
--- Main entry point
+-- storycam/init.lua
+storycam = storycam or {}
+storycam.active_plays = {}
+storycam.projects = storycam.projects or {}
+storycam.worldpath = minetest.get_worldpath()
 
-storycam = {
-    active_plays = {},
-    projects = {},
-    worldpath = minetest.get_worldpath(),
-}
+local modpath = minetest.get_modpath("storycam")
+dofile(modpath .. "/core.lua")
+dofile(modpath .. "/project.lua")
+dofile(modpath .. "/camera.lua")
+dofile(modpath .. "/editor.lua")
 
--- Load modules
-dofile(minetest.get_modpath("storycam").."/core.lua")
-dofile(minetest.get_modpath("storycam").."/project.lua")
-dofile(minetest.get_modpath("storycam").."/camera.lua")
-dofile(minetest.get_modpath("storycam").."/editor.lua")
-
-minetest.log("action", "[StoryCam] Loaded successfully.")
+minetest.log("action", "[storycam] loaded")
