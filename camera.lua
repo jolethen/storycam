@@ -1,20 +1,64 @@
 -- storycam/camera.lua
--- Smooth playback controller
+storycam = storycam or {}
 
+-- playback internals
+storycam.active_plays = storycam.active_plays or {}
+
+-- build playback path from project (ordered frames)
+local function build_path_from_project(proj)
+    if not proj or not proj.points then return {} end
+    local ordered = storycam.get_ordered_points(proj.points)
+    local path = {}
+    for i, item in ipairs(ordered) do
+        table.insert(path, item.point)
+    end
+    return path
+end
+
+-- start playback for a single player
+function storycam.play_sequence_for_player(player, proj)
+    if not player or not player:is_player() then return false, "player missing" end
+    if not proj then return false, "project missing" end
+    local path = build_path_from_project(proj)
+    if #path == 0 then return false, "no frames in project" end
+    -- create an entry
+    local id = tostring(player:get_player_name()) .. "_" .. tostring(math.random(10000,99999))
+    storycam.active_plays[id] = {
+        player = player,
+        path = path,
+        idx = 1,   -- current point index (source point)
+        timer = 0
+    }
+    storycam.lock_player(player, true)
+    return true, id
+end
+
+-- entrypoint used by editor: player + proj table
+function storycam.play_sequence(player, proj)
+    return storycam.play_sequence_for_player(player, proj)
+end
+
+-- globalstep to advance active plays
 minetest.register_globalstep(function(dtime)
     for id, play in pairs(storycam.active_plays) do
+        local player = play.player
         local path = play.path
-        if not path or #path == 0 then
+        if not player or not player:is_player() or not path then
+            -- cleanup
+            storycam.lock_player(player, false)
             storycam.active_plays[id] = nil
         else
-            local cur = path[play.idx]
-            local nxt = path[play.idx + 1]
+            local cur_idx = play.idx
+            local cur = path[cur_idx]
             if not cur then
-                for _, p in ipairs(play.players) do storycam.lock_player(p, false) end
+                -- finished
+                storycam.lock_player(player, false)
                 storycam.active_plays[id] = nil
             else
+                local next_idx = cur_idx + 1
+                local nxt = path[next_idx]
+                local dur = tonumber(cur.dur) or 3
                 play.timer = play.timer + dtime
-                local dur = cur.dur or 2
                 local t = math.min(play.timer / dur, 1)
                 local eased = storycam.ease(t)
 
@@ -29,39 +73,23 @@ minetest.register_globalstep(function(dtime)
                     pitch = storycam.lerp(cur.pitch, nxt.pitch, eased)
                 else
                     pos = cur.pos
-                    yaw = cur.yaw
-                    pitch = cur.pitch
+                    yaw = cur.yaw or 0
+                    pitch = cur.pitch or 0
                 end
 
-                for _, p in ipairs(play.players) do
-                    if p and p:is_player() then
-                        p:set_pos(pos)
-                        p:set_look_horizontal(yaw)
-                        p:set_look_vertical(pitch)
-                    end
+                -- move player safely
+                if player and player:is_player() then
+                    pcall(function() player:set_pos(pos) end)
+                    pcall(function() storycam.safe_set_look(player, yaw, pitch) end)
                 end
 
                 if t >= 1 then
-                    play.idx = play.idx + 1
+                    -- advance to next frame
+                    play.idx = next_idx
                     play.timer = 0
-                    if play.idx > #path then
-                        for _, p in ipairs(play.players) do
-                            storycam.lock_player(p, false)
-                        end
-                        storycam.active_plays[id] = nil
-                    end
+                    -- if no next, will be cleaned next loop
                 end
             end
         end
     end
 end)
-
--- Start playback
-function storycam.play(projname, players)
-    local proj = storycam.projects[projname]
-    if not proj then return false, "no such project" end
-    local id = projname.."_"..math.random(1000,9999)
-    storycam.active_plays[id] = {path = proj.points, players = players, idx = 1, timer = 0}
-    for _, p in ipairs(players) do storycam.lock_player(p, true) end
-    return true
-end
